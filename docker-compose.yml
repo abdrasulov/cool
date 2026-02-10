@@ -1,0 +1,14 @@
+services:
+  mdm:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - BASE_URL=${BASE_URL:-https://your-ngrok-url.ngrok.io}
+      - APNS_MOCK=true
+    volumes:
+      - mdm-data:/app/data
+
+volumes:
+  mdm-data:

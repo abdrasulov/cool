@@ -1,7 +1,9 @@
 module.exports = {
   PORT: process.env.PORT || 3001,
   HOST: process.env.HOST || 'localhost',
-  BASE_URL: process.env.BASE_URL || 'https://your-mdm-server.example.com',
+  BASE_URL: process.env.BASE_URL
+    || (process.env.RENDER_EXTERNAL_URL ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` : null)
+    || 'https://your-mdm-server.example.com',
   DB_PATH: process.env.DB_PATH || './mdm.db',
 
   // MDM Configuration

@@ -38,6 +38,44 @@ client/
 
 ---
 
+## Quick Deploy to Render (Free)
+
+The fastest way to get this running on a public HTTPS URL for testing.
+
+### 1. Push to GitHub
+
+Make sure this repo is on GitHub (public or private).
+
+### 2. Deploy on Render
+
+1. Go to [render.com](https://render.com) and sign up (free)
+2. Click **New > Web Service**
+3. Connect your GitHub repo
+4. Render auto-detects the `render.yaml` — settings will be pre-filled:
+   - **Build command:** `npm install && cd client && npm install && npx react-scripts build`
+   - **Start command:** `node server/index.js`
+5. Click **Create Web Service**
+
+### 3. Set BASE_URL
+
+Once deployed, Render gives you a URL like `https://mdm-server-xxxx.onrender.com`.
+
+Go to your service's **Environment** tab and set:
+```
+BASE_URL=https://mdm-server-xxxx.onrender.com
+```
+
+### 4. Enroll your iPhone
+
+Open `https://mdm-server-xxxx.onrender.com/enroll/profile` in Safari on your iPhone and follow the prompts.
+
+> **Free tier notes:**
+> - Server spins down after 15 min of inactivity and takes ~30s to wake up on next request
+> - SQLite data resets on each deploy (fine for MVP testing)
+> - HTTPS is included automatically
+
+---
+
 ## Local Development
 
 ### Prerequisites
