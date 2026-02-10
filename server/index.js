@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const config = require('./config');
+const db = require('./database');
 
 const mdmRoutes = require('./routes/mdm');
 const enrollRoutes = require('./routes/enroll');
@@ -29,9 +30,18 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(clientBuild, 'index.html'));
 });
 
-app.listen(config.PORT, () => {
-  console.log(`MDM Server running on port ${config.PORT}`);
-  console.log(`API:        http://localhost:${config.PORT}/api`);
-  console.log(`Enrollment: http://localhost:${config.PORT}/enroll/profile`);
-  console.log(`APNs Mock:  ${config.APNS.MOCK ? 'ENABLED' : 'DISABLED'}`);
-});
+// Initialize database then start server
+db.init()
+  .then(() => {
+    app.listen(config.PORT, () => {
+      console.log(`MDM Server running on port ${config.PORT}`);
+      console.log(`API:        http://localhost:${config.PORT}/api`);
+      console.log(`Enrollment: http://localhost:${config.PORT}/enroll/profile`);
+      console.log(`APNs Mock:  ${config.APNS.MOCK ? 'ENABLED' : 'DISABLED'}`);
+      console.log(`Database:   PostgreSQL`);
+    });
+  })
+  .catch((err) => {
+    console.error('Failed to initialize database:', err);
+    process.exit(1);
+  });
