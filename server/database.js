@@ -1,126 +1,133 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+const { Pool } = require('pg');
 const config = require('./config');
 
-const db = new Database(path.resolve(config.DB_PATH));
+const pool = new Pool({
+  connectionString: config.DATABASE_URL,
+  ssl: config.DATABASE_URL && !config.DATABASE_URL.includes('localhost')
+    ? { rejectUnauthorized: false }
+    : false,
+});
 
-// Enable WAL mode for better concurrent read performance
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+async function init() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS devices (
+      id SERIAL PRIMARY KEY,
+      udid TEXT UNIQUE NOT NULL,
+      serial_number TEXT,
+      device_name TEXT,
+      model TEXT,
+      os_version TEXT,
+      push_token TEXT,
+      push_magic TEXT,
+      unlock_token TEXT,
+      topic TEXT,
+      last_seen TIMESTAMPTZ,
+      enrolled_at TIMESTAMPTZ DEFAULT NOW(),
+      status TEXT DEFAULT 'enrolled'
+    )
+  `);
 
-// Create tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS devices (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    udid TEXT UNIQUE NOT NULL,
-    serial_number TEXT,
-    device_name TEXT,
-    model TEXT,
-    os_version TEXT,
-    push_token TEXT,
-    push_magic TEXT,
-    unlock_token TEXT,
-    topic TEXT,
-    last_seen DATETIME,
-    enrolled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    status TEXT DEFAULT 'enrolled'
-  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS commands (
+      id SERIAL PRIMARY KEY,
+      command_uuid TEXT UNIQUE NOT NULL,
+      device_udid TEXT NOT NULL REFERENCES devices(udid),
+      command_type TEXT NOT NULL,
+      payload TEXT,
+      status TEXT DEFAULT 'pending',
+      result TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      sent_at TIMESTAMPTZ,
+      responded_at TIMESTAMPTZ
+    )
+  `);
 
-  CREATE TABLE IF NOT EXISTS commands (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    command_uuid TEXT UNIQUE NOT NULL,
-    device_udid TEXT NOT NULL,
-    command_type TEXT NOT NULL,
-    payload TEXT,
-    status TEXT DEFAULT 'pending',
-    result TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    sent_at DATETIME,
-    responded_at DATETIME,
-    FOREIGN KEY (device_udid) REFERENCES devices(udid)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_commands_device ON commands(device_udid);
-  CREATE INDEX IF NOT EXISTS idx_commands_status ON commands(status);
-`);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_commands_device ON commands(device_udid)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_commands_status ON commands(status)');
+}
 
 module.exports = {
+  init,
+
   // ---------- Devices ----------
-  getAllDevices() {
-    return db.prepare('SELECT * FROM devices ORDER BY enrolled_at DESC').all();
+  async getAllDevices() {
+    const { rows } = await pool.query('SELECT * FROM devices ORDER BY enrolled_at DESC');
+    return rows;
   },
 
-  getDevice(udid) {
-    return db.prepare('SELECT * FROM devices WHERE udid = ?').get(udid);
+  async getDevice(udid) {
+    const { rows } = await pool.query('SELECT * FROM devices WHERE udid = $1', [udid]);
+    return rows[0] || null;
   },
 
-  upsertDevice({ udid, serial_number, device_name, model, os_version, push_token, push_magic, unlock_token, topic }) {
-    const existing = db.prepare('SELECT * FROM devices WHERE udid = ?').get(udid);
-    if (existing) {
-      const stmt = db.prepare(`
+  async upsertDevice({ udid, serial_number, device_name, model, os_version, push_token, push_magic, unlock_token, topic }) {
+    const { rows: existing } = await pool.query('SELECT * FROM devices WHERE udid = $1', [udid]);
+    if (existing.length > 0) {
+      await pool.query(`
         UPDATE devices SET
-          serial_number = COALESCE(?, serial_number),
-          device_name = COALESCE(?, device_name),
-          model = COALESCE(?, model),
-          os_version = COALESCE(?, os_version),
-          push_token = COALESCE(?, push_token),
-          push_magic = COALESCE(?, push_magic),
-          unlock_token = COALESCE(?, unlock_token),
-          topic = COALESCE(?, topic),
-          last_seen = CURRENT_TIMESTAMP,
+          serial_number = COALESCE($1, serial_number),
+          device_name = COALESCE($2, device_name),
+          model = COALESCE($3, model),
+          os_version = COALESCE($4, os_version),
+          push_token = COALESCE($5, push_token),
+          push_magic = COALESCE($6, push_magic),
+          unlock_token = COALESCE($7, unlock_token),
+          topic = COALESCE($8, topic),
+          last_seen = NOW(),
           status = 'enrolled'
-        WHERE udid = ?
-      `);
-      stmt.run(serial_number, device_name, model, os_version, push_token, push_magic, unlock_token, topic, udid);
+        WHERE udid = $9
+      `, [serial_number, device_name, model, os_version, push_token, push_magic, unlock_token, topic, udid]);
     } else {
-      const stmt = db.prepare(`
+      await pool.query(`
         INSERT INTO devices (udid, serial_number, device_name, model, os_version, push_token, push_magic, unlock_token, topic)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      stmt.run(udid, serial_number, device_name, model, os_version, push_token, push_magic, unlock_token, topic);
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `, [udid, serial_number, device_name, model, os_version, push_token, push_magic, unlock_token, topic]);
     }
-    return db.prepare('SELECT * FROM devices WHERE udid = ?').get(udid);
+    const { rows } = await pool.query('SELECT * FROM devices WHERE udid = $1', [udid]);
+    return rows[0];
   },
 
-  updateDeviceStatus(udid, status) {
-    db.prepare('UPDATE devices SET status = ?, last_seen = CURRENT_TIMESTAMP WHERE udid = ?').run(status, udid);
+  async updateDeviceStatus(udid, status) {
+    await pool.query('UPDATE devices SET status = $1, last_seen = NOW() WHERE udid = $2', [status, udid]);
   },
 
-  removeDevice(udid) {
-    db.prepare('UPDATE devices SET status = ? WHERE udid = ?').run('unenrolled', udid);
+  async removeDevice(udid) {
+    await pool.query("UPDATE devices SET status = 'unenrolled' WHERE udid = $1", [udid]);
   },
 
   // ---------- Commands ----------
-  createCommand({ command_uuid, device_udid, command_type, payload }) {
-    db.prepare(`
+  async createCommand({ command_uuid, device_udid, command_type, payload }) {
+    await pool.query(`
       INSERT INTO commands (command_uuid, device_udid, command_type, payload)
-      VALUES (?, ?, ?, ?)
-    `).run(command_uuid, device_udid, command_type, payload);
-    return db.prepare('SELECT * FROM commands WHERE command_uuid = ?').get(command_uuid);
+      VALUES ($1, $2, $3, $4)
+    `, [command_uuid, device_udid, command_type, payload]);
+    const { rows } = await pool.query('SELECT * FROM commands WHERE command_uuid = $1', [command_uuid]);
+    return rows[0];
   },
 
-  getNextPendingCommand(device_udid) {
-    return db.prepare(`
+  async getNextPendingCommand(device_udid) {
+    const { rows } = await pool.query(`
       SELECT * FROM commands
-      WHERE device_udid = ? AND status = 'pending'
+      WHERE device_udid = $1 AND status = 'pending'
       ORDER BY created_at ASC LIMIT 1
-    `).get(device_udid);
+    `, [device_udid]);
+    return rows[0] || null;
   },
 
-  updateCommandStatus(command_uuid, status, result) {
-    const now = new Date().toISOString();
+  async updateCommandStatus(command_uuid, status, result) {
     if (status === 'sent') {
-      db.prepare('UPDATE commands SET status = ?, sent_at = ? WHERE command_uuid = ?').run(status, now, command_uuid);
+      await pool.query('UPDATE commands SET status = $1, sent_at = NOW() WHERE command_uuid = $2', [status, command_uuid]);
     } else {
-      db.prepare('UPDATE commands SET status = ?, result = ?, responded_at = ? WHERE command_uuid = ?').run(status, result, now, command_uuid);
+      await pool.query('UPDATE commands SET status = $1, result = $2, responded_at = NOW() WHERE command_uuid = $3', [status, result, command_uuid]);
     }
   },
 
-  getCommandsForDevice(device_udid) {
-    return db.prepare('SELECT * FROM commands WHERE device_udid = ? ORDER BY created_at DESC').all(device_udid);
+  async getCommandsForDevice(device_udid) {
+    const { rows } = await pool.query('SELECT * FROM commands WHERE device_udid = $1 ORDER BY created_at DESC', [device_udid]);
+    return rows;
   },
 
-  close() {
-    db.close();
+  async close() {
+    await pool.end();
   },
 };
