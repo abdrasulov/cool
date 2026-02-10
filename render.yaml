@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: mdm-server
+    runtime: node
+    plan: free
+    buildCommand: npm install && cd client && npm install && npx react-scripts build
+    startCommand: node server/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: APNS_MOCK
+        value: "true"
+      - key: BASE_URL
+        sync: false
