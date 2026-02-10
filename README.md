@@ -16,7 +16,7 @@ Simple MDM server and web app for iPhone management. Supports device enrollment,
 server/
   index.js              # Express entry point
   config.js             # Environment-based configuration
-  database.js           # SQLite schema and queries
+  database.js           # PostgreSQL schema and queries
   routes/
     api.js              # REST API for the web frontend
     mdm.js              # Apple MDM protocol endpoints
@@ -38,21 +38,71 @@ client/
 
 ---
 
+## Quick Deploy to Render (Free)
+
+The fastest way to get this running on a public HTTPS URL for testing.
+
+### 1. Push to GitHub
+
+Make sure this repo is on GitHub (public or private).
+
+### 2. Deploy on Render
+
+1. Go to [render.com](https://render.com) and sign up (free)
+2. Click **New > Blueprint Instance**
+3. Connect your GitHub repo
+4. Render auto-detects the `render.yaml` and creates both the web service and PostgreSQL database
+5. Click **Apply**
+
+### 3. Set BASE_URL
+
+Once deployed, Render gives you a URL like `https://mdm-server-xxxx.onrender.com`.
+
+Go to your service's **Environment** tab and set:
+```
+BASE_URL=https://mdm-server-xxxx.onrender.com
+```
+
+### 4. Enroll your iPhone
+
+Open `https://mdm-server-xxxx.onrender.com/enroll/profile` in Safari on your iPhone and follow the prompts.
+
+> **Free tier notes:**
+> - Server spins down after 15 min of inactivity and takes ~30s to wake up on next request
+> - PostgreSQL database persists across deploys (device data is safe)
+> - Free PostgreSQL has 1GB storage and expires after 90 days
+> - HTTPS is included automatically
+
+---
+
 ## Local Development
 
 ### Prerequisites
 
 - Node.js 18+
 - npm
+- PostgreSQL (local instance or use a free cloud DB like [Neon](https://neon.tech))
 
-### 1. Install dependencies
+### 1. Set up the database
+
+```bash
+# Option A: Local PostgreSQL
+createdb mdm
+export DATABASE_URL=postgresql://localhost:5432/mdm
+
+# Option B: Use Neon.tech (free hosted PostgreSQL, no install needed)
+# Sign up at https://neon.tech, create a project, and copy the connection string
+export DATABASE_URL=postgresql://user:pass@host/dbname?sslmode=require
+```
+
+### 2. Install dependencies
 
 ```bash
 npm install
 cd client && npm install && cd ..
 ```
 
-### 2. Start the development servers
+### 3. Start the development servers
 
 ```bash
 npm run dev
@@ -64,7 +114,7 @@ This starts both:
 
 Open `http://localhost:3000` in your browser.
 
-### 3. Test the API
+### 4. Test the API
 
 ```bash
 # List devices (should return empty array)
@@ -138,7 +188,7 @@ PORT=3001
 BASE_URL=https://mdm.yourdomain.com
 
 # Database
-DB_PATH=./data/mdm.db
+DATABASE_URL=postgresql://user:pass@host:5432/mdm
 
 # MDM
 MDM_TOPIC=com.apple.mgmt.External.YOUR_TOPIC_ID
@@ -154,7 +204,7 @@ APNS_PRODUCTION=true
 |---|---|---|
 | `PORT` | Server port | `3001` |
 | `BASE_URL` | Public HTTPS URL of your server | `https://your-mdm-server.example.com` |
-| `DB_PATH` | Path to SQLite database file | `./mdm.db` |
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql://localhost:5432/mdm` |
 | `MDM_TOPIC` | APNs topic from your push certificate | `com.apple.mgmt.External.placeholder` |
 | `APNS_MOCK` | Set to `false` to enable real APNs | `true` |
 | `APNS_CERT_PATH` | Path to APNs certificate PEM | `./certs/apns-cert.pem` |

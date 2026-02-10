@@ -1,8 +1,6 @@
 const express = require('express');
 const plist = require('plist');
 const db = require('../database');
-const { buildCommand } = require('../services/commands');
-const { sendPushNotification } = require('../services/apns');
 
 const router = express.Router();
 
@@ -10,13 +8,12 @@ const router = express.Router();
  * MDM Check-In endpoint
  * Handles: Authenticate, TokenUpdate, CheckOut
  */
-router.put('/checkin', express.raw({ type: 'application/x-apple-aspen-mdm-checkin' }), (req, res) => {
+router.put('/checkin', express.raw({ type: 'application/x-apple-aspen-mdm-checkin' }), async (req, res) => {
   try {
     let body;
     try {
       body = plist.parse(req.body.toString());
     } catch {
-      // Try as regular text if raw parse fails
       body = plist.parse(req.body);
     }
 
@@ -27,8 +24,7 @@ router.put('/checkin', express.raw({ type: 'application/x-apple-aspen-mdm-checki
 
     switch (messageType) {
       case 'Authenticate': {
-        // First message from device during enrollment
-        db.upsertDevice({
+        await db.upsertDevice({
           udid,
           serial_number: body.SerialNumber || null,
           device_name: body.DeviceName || null,
@@ -42,8 +38,7 @@ router.put('/checkin', express.raw({ type: 'application/x-apple-aspen-mdm-checki
       }
 
       case 'TokenUpdate': {
-        // Device sends its push token
-        db.upsertDevice({
+        await db.upsertDevice({
           udid,
           push_token: body.Token ? body.Token.toString('base64') : null,
           push_magic: body.PushMagic || null,
@@ -56,8 +51,7 @@ router.put('/checkin', express.raw({ type: 'application/x-apple-aspen-mdm-checki
       }
 
       case 'CheckOut': {
-        // Device is being unenrolled
-        db.updateDeviceStatus(udid, 'unenrolled');
+        await db.updateDeviceStatus(udid, 'unenrolled');
         console.log(`[MDM] Device checked out: ${udid}`);
         res.status(200).end();
         break;
@@ -78,7 +72,7 @@ router.put('/checkin', express.raw({ type: 'application/x-apple-aspen-mdm-checki
  * Device contacts this URL after receiving a push notification.
  * Responds with the next pending command or empty (200) if none.
  */
-router.put('/server', express.raw({ type: () => true }), (req, res) => {
+router.put('/server', express.raw({ type: () => true }), async (req, res) => {
   try {
     let body;
     try {
@@ -95,7 +89,7 @@ router.put('/server', express.raw({ type: () => true }), (req, res) => {
 
     // Update device last seen
     if (udid) {
-      db.upsertDevice({ udid });
+      await db.upsertDevice({ udid });
     }
 
     // If we received a response to a previous command, record it
@@ -104,14 +98,14 @@ router.put('/server', express.raw({ type: () => true }), (req, res) => {
         : status === 'Error' ? 'error'
         : status === 'CommandFormatError' ? 'format_error'
         : status;
-      db.updateCommandStatus(commandUUID, resultStatus, JSON.stringify(body));
+      await db.updateCommandStatus(commandUUID, resultStatus, JSON.stringify(body));
     }
 
     // Check if there's a pending command for this device
     if (udid) {
-      const nextCommand = db.getNextPendingCommand(udid);
+      const nextCommand = await db.getNextPendingCommand(udid);
       if (nextCommand) {
-        db.updateCommandStatus(nextCommand.command_uuid, 'sent');
+        await db.updateCommandStatus(nextCommand.command_uuid, 'sent');
         console.log(`[MDM] Sending command ${nextCommand.command_type} to ${udid}`);
         res.set('Content-Type', 'application/xml');
         res.status(200).send(nextCommand.payload);

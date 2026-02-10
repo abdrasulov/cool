@@ -1,8 +1,10 @@
 module.exports = {
   PORT: process.env.PORT || 3001,
   HOST: process.env.HOST || 'localhost',
-  BASE_URL: process.env.BASE_URL || 'https://your-mdm-server.example.com',
-  DB_PATH: process.env.DB_PATH || './mdm.db',
+  BASE_URL: process.env.BASE_URL
+    || (process.env.RENDER_EXTERNAL_URL ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` : null)
+    || 'https://your-mdm-server.example.com',
+  DATABASE_URL: process.env.DATABASE_URL || 'postgresql://localhost:5432/mdm',
 
   // MDM Configuration
   MDM_TOPIC: process.env.MDM_TOPIC || 'com.apple.mgmt.External.placeholder',

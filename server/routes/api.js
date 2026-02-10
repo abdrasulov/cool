@@ -9,22 +9,37 @@ const router = express.Router();
 // ---------- Devices ----------
 
 /** List all devices */
-router.get('/devices', (req, res) => {
-  const devices = db.getAllDevices();
-  res.json(devices);
+router.get('/devices', async (req, res) => {
+  try {
+    const devices = await db.getAllDevices();
+    res.json(devices);
+  } catch (err) {
+    console.error('[API Error]', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /** Get single device */
-router.get('/devices/:udid', (req, res) => {
-  const device = db.getDevice(req.params.udid);
-  if (!device) return res.status(404).json({ error: 'Device not found' });
-  res.json(device);
+router.get('/devices/:udid', async (req, res) => {
+  try {
+    const device = await db.getDevice(req.params.udid);
+    if (!device) return res.status(404).json({ error: 'Device not found' });
+    res.json(device);
+  } catch (err) {
+    console.error('[API Error]', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /** Get commands for a device */
-router.get('/devices/:udid/commands', (req, res) => {
-  const commands = db.getCommandsForDevice(req.params.udid);
-  res.json(commands);
+router.get('/devices/:udid/commands', async (req, res) => {
+  try {
+    const commands = await db.getCommandsForDevice(req.params.udid);
+    res.json(commands);
+  } catch (err) {
+    console.error('[API Error]', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ---------- Actions ----------
@@ -32,21 +47,20 @@ router.get('/devices/:udid/commands', (req, res) => {
 /** Send push notification (DeviceLock with message) */
 router.post('/devices/:udid/notify', async (req, res) => {
   try {
-    const device = db.getDevice(req.params.udid);
+    const device = await db.getDevice(req.params.udid);
     if (!device) return res.status(404).json({ error: 'Device not found' });
     if (device.status !== 'enrolled') return res.status(400).json({ error: 'Device is not enrolled' });
 
     const { message, phoneNumber, pin } = req.body;
     const cmd = buildCommand('SendMessage', { message, phoneNumber, pin });
 
-    db.createCommand({
+    await db.createCommand({
       command_uuid: cmd.uuid,
       device_udid: device.udid,
       command_type: 'SendMessage',
       payload: cmd.plistPayload,
     });
 
-    // Wake device via APNs
     const pushResult = await sendPushNotification(device.push_token, device.push_magic, device.topic || config.MDM_TOPIC);
 
     res.json({
@@ -64,14 +78,14 @@ router.post('/devices/:udid/notify', async (req, res) => {
 /** Enable Lost Mode */
 router.post('/devices/:udid/lost-mode', async (req, res) => {
   try {
-    const device = db.getDevice(req.params.udid);
+    const device = await db.getDevice(req.params.udid);
     if (!device) return res.status(404).json({ error: 'Device not found' });
     if (device.status !== 'enrolled') return res.status(400).json({ error: 'Device is not enrolled' });
 
     const { message, phoneNumber, footnote } = req.body;
     const cmd = buildCommand('EnableLostMode', { message, phoneNumber, footnote });
 
-    db.createCommand({
+    await db.createCommand({
       command_uuid: cmd.uuid,
       device_udid: device.udid,
       command_type: 'EnableLostMode',
@@ -95,12 +109,12 @@ router.post('/devices/:udid/lost-mode', async (req, res) => {
 /** Disable Lost Mode */
 router.post('/devices/:udid/disable-lost-mode', async (req, res) => {
   try {
-    const device = db.getDevice(req.params.udid);
+    const device = await db.getDevice(req.params.udid);
     if (!device) return res.status(404).json({ error: 'Device not found' });
 
     const cmd = buildCommand('DisableLostMode');
 
-    db.createCommand({
+    await db.createCommand({
       command_uuid: cmd.uuid,
       device_udid: device.udid,
       command_type: 'DisableLostMode',
@@ -124,13 +138,13 @@ router.post('/devices/:udid/disable-lost-mode', async (req, res) => {
 /** Unenroll device (remove MDM profile) */
 router.post('/devices/:udid/unenroll', async (req, res) => {
   try {
-    const device = db.getDevice(req.params.udid);
+    const device = await db.getDevice(req.params.udid);
     if (!device) return res.status(404).json({ error: 'Device not found' });
     if (device.status !== 'enrolled') return res.status(400).json({ error: 'Device is not enrolled' });
 
     const cmd = buildCommand('RemoveProfile');
 
-    db.createCommand({
+    await db.createCommand({
       command_uuid: cmd.uuid,
       device_udid: device.udid,
       command_type: 'RemoveProfile',
@@ -139,8 +153,7 @@ router.post('/devices/:udid/unenroll', async (req, res) => {
 
     const pushResult = await sendPushNotification(device.push_token, device.push_magic, device.topic || config.MDM_TOPIC);
 
-    // Mark device as unenrolled locally
-    db.removeDevice(device.udid);
+    await db.removeDevice(device.udid);
 
     res.json({
       success: true,
@@ -157,13 +170,13 @@ router.post('/devices/:udid/unenroll', async (req, res) => {
 /** Query device information */
 router.post('/devices/:udid/query', async (req, res) => {
   try {
-    const device = db.getDevice(req.params.udid);
+    const device = await db.getDevice(req.params.udid);
     if (!device) return res.status(404).json({ error: 'Device not found' });
     if (device.status !== 'enrolled') return res.status(400).json({ error: 'Device is not enrolled' });
 
     const cmd = buildCommand('DeviceInformation');
 
-    db.createCommand({
+    await db.createCommand({
       command_uuid: cmd.uuid,
       device_udid: device.udid,
       command_type: 'DeviceInformation',
